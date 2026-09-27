@@ -4,6 +4,8 @@
 
 当前主要面向 **Windows 上的 Codex 桌面端**。安装 Skill 不会自动提供宿主缺失的工具、接口或 Hook 权限。
 
+https://github.com/user-attachments/assets/94c0a4d6-0bee-405e-9fe9-dc398cb7faa0
+
 ## 📋 目录
 
 | 技能 | 一句话 | 使用入口 |
