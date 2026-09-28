@@ -1,5 +1,7 @@
 # 🧰 Table Skills
 
+[抖音 · 一只桌子](https://v.douyin.com/7jbgafVeA4U/) · [YouTube · 一只桌子](https://www.youtube.com/@%E4%B8%80%E5%8F%AA%E6%A1%8C%E5%AD%90) · [小红书 · 一只桌桌桌子](https://xhslink.cn/o/2iZQ3Yc2j4E) · [bilibili · 一只桌子_table](https://b23.tv/7Y34qaP) · [X · 一只桌子](https://x.com/D_uoduo)
+
 整理日常使用中的 AI 技能与实验思路，按实际效果持续调整。当前维护「项目交接」；「网页替身」旧版实现已弃用，保留设计思路供后续探索。
 
 当前主要面向 **Windows 上的 Codex 桌面端**。安装 Skill 不会自动提供宿主缺失的工具、接口或 Hook 权限。
@@ -76,5 +78,14 @@ Astra 上线后 token 利用率提高，但网页外包的实测省 token 效果
 ## 📄 许可证
 
 本仓库采用 [MIT License](LICENSE)，允许复制、修改、商用和再发布，须保留版权和许可证声明。
+
+## 📬 联系我
+
+欢迎交流实际使用中的问题与改进建议。
+
+| 渠道 | 联系方式 |
+|---|---|
+| 邮箱 | [duoduoler@gmail.com](mailto:duoduoler@gmail.com) |
+| X | [一只桌子 · @D_uoduo](https://x.com/D_uoduo) |
 
 Made by [@duoduoler-ops](https://github.com/duoduoler-ops)
