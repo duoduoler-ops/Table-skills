@@ -12,19 +12,19 @@
 
 session_id、turn_id 只用宿主给的，也就是注入文本里的“当前session_id”“当前turn_id”（Codex 的 turn_id、Claude Code 的 prompt_id）。没有标识就不能登记，更不能猜。
 
-Windows 用 PowerShell 7：
+Windows 用 PowerShell 7（`py` 是 Python 启动器；没有它就写 `& '<PYTHON_EXE>'` 绝对路径）：
 
 ```powershell
-& '<PYTHON_EXE>' -X utf8 '<SKILL_DIRECTORY>/scripts/compaction_reminder.py' --state-dir '<STATE_DIR>' --session-id '<当前session_id>' --action status
+py -3 -X utf8 '<SKILL_DIRECTORY>/scripts/compaction_reminder.py' --state-dir '<STATE_DIR>' --session-id '<当前session_id>' --action status
 ```
 
 macOS／Linux：
 
 ```bash
-'<PYTHON_EXE>' -X utf8 '<SKILL_DIRECTORY>/scripts/compaction_reminder.py' --state-dir '<STATE_DIR>' --session-id '<当前session_id>' --action status
+python3 -X utf8 '<SKILL_DIRECTORY>/scripts/compaction_reminder.py' --state-dir '<STATE_DIR>' --session-id '<当前session_id>' --action status
 ```
 
-`<SKILL_DIRECTORY>` 是本 Skill 的实际安装目录。`<STATE_DIR>`：Codex 为 `<CODEX_HOME>/state/project-handoff`（CODEX_HOME 未设置时是用户目录下 `.codex`），Claude Code 为 `<CLAUDE_HOME>/state/project-handoff`（通常是用户目录下 `.claude`）。`status` 只读，不建锁、不写回。其他动作把 `--action status` 换成下表参数。
+`<SKILL_DIRECTORY>` 是本 Skill 的实际安装目录，宿主加载 Skill 或注入文本时会给出。Windows 上不要把 `python` 当成可用解释器，它可能只是商店占位程序。`<STATE_DIR>`：Codex 为 `<CODEX_HOME>/state/project-handoff`（CODEX_HOME 未设置时是用户目录下 `.codex`），Claude Code 为 `<CLAUDE_HOME>/state/project-handoff`（通常是用户目录下 `.claude`）。`status` 只读，不建锁、不写回。其他动作把 `--action status` 换成下表参数。
 
 常用动作：
 
