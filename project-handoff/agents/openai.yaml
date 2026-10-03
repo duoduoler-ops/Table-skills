@@ -1,6 +1,6 @@
 interface:
   display_name: "项目交接"
-  short_description: "记录交接评估，补查遗漏，仅最终文本核验后计数，确认后保存并接续任务"
-  default_prompt: "使用 $project-handoff 整理当前任务交接；仅保存时交付材料，已明确要求新建并继续时完成自动接续，已指定来源时核对后恢复。"
+  short_description: "保存进度、整理交接、新对话接续；第三次自动压缩后在安全位置提醒，不自动新建"
+  default_prompt: "使用 $project-handoff 整理当前任务交接：只要求保存时交付材料和开场白，已明确要求新建并继续时完成自动接续，已指定来源时核对后恢复。"
 policy:
   allow_implicit_invocation: true
