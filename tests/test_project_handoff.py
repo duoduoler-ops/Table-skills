@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -551,6 +552,25 @@ class ReminderTests(unittest.TestCase):
         self.assertNotIn("执行前读取", ctx)
         self.compact()
         self.assertIn("执行前读取", self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"])
+
+    def test_relative_links_in_skill_docs_resolve(self):
+        skill = REPO / "project-handoff"
+        docs = [skill / "SKILL.md", *sorted((skill / "references").glob("*.md"))]
+        for doc in docs:
+            for target in re.findall(r"\]\(([^)#\s]+)(?:#[^)]*)?\)", doc.read_text(encoding="utf-8")):
+                if "://" in target:
+                    continue
+                self.assertTrue((doc.parent / target).resolve().exists(), f"{doc.name} -> {target}")
+
+    def test_state_template_has_markers_and_handoff_fields(self):
+        text = (REPO / "project-handoff" / "assets" / "PROJECT_STATE.template.md").read_text(encoding="utf-8")
+        begin = re.search(r"<!-- (\S+)-HANDOFF-BEGIN (\S+) -->", text)
+        self.assertIsNotNone(begin)
+        self.assertIn(f"<!-- {begin.group(1)}-HANDOFF-END {begin.group(2)} -->", text)
+        for section in ("交接区", "任务与版本", "权威资料", "决定与限制", "进展与运行状态", "接续动作"):
+            self.assertIn(f"### {section}", text)
+        for status in ("材料已核对", "等待接手核验", "准备接续", "已接手", "受阻"):
+            self.assertIn(status, text)
 
     def test_new_state_is_v3_without_legacy_snapshot(self):
         self.compact()

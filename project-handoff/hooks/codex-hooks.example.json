@@ -53,5 +53,5 @@
       }
     ]
   },
-  "description": "project-handoff: 压缩节点评估补漏；仅最终文本核验计数；每轮最多一次补漏"
+  "description": "project-handoff: 第 3 次自动压缩后评估交接提醒；阶段与冷却去重；只认最终答复首段，每轮最多补漏一次"
 }
