@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<PYTHON_EXE>",
+            "args": ["-X", "utf8", "<SKILL_DIRECTORY>/scripts/claude_hook.py", "--state-dir", "<CLAUDE_HOME>/state/project-handoff"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<PYTHON_EXE>",
+            "args": ["-X", "utf8", "<SKILL_DIRECTORY>/scripts/claude_hook.py", "--state-dir", "<CLAUDE_HOME>/state/project-handoff"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<PYTHON_EXE>",
+            "args": ["-X", "utf8", "<SKILL_DIRECTORY>/scripts/claude_hook.py", "--state-dir", "<CLAUDE_HOME>/state/project-handoff"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<PYTHON_EXE>",
+            "args": ["-X", "utf8", "<SKILL_DIRECTORY>/scripts/claude_hook.py", "--state-dir", "<CLAUDE_HOME>/state/project-handoff"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
