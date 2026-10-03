@@ -15,7 +15,9 @@ else:
     import fcntl
 
 INTERVAL = 3
+RETENTION_DAYS = 60
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+STATE_NAME = re.compile(r"[0-9a-f]{64}")
 
 
 @contextmanager
@@ -71,13 +73,53 @@ def state_path(root, session):
     return root / (hashlib.sha256(session.encode()).hexdigest() + ".json")
 
 
-def read_state(path, session):
-    state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {
+def fresh_state(session):
+    return {
         "schema": 1, "session_id": session, "auto_count": 0,
         "next_reminder_at": INTERVAL, "muted": False,
         "last_notified_at": None, "last_reason": None,
         "response": None, "coverage": "observed_since_hook_enabled",
+        "tracking_version": 3, "reminder_count": 0, "tracked_reminder_count": 0,
+        "stage_keys": [], "confusion_keys": [], "proposal": None, "defer_until": None,
+        "last_response_turn_id": None, "active_turn_id": None,
+        "evaluation": None, "stop_audit": None,
     }
+
+
+def sweep(root, keep):
+    """Remove this skill's own state files untouched for RETENTION_DAYS.
+
+    Runs on automatic compaction only. Staleness is judged by the .json file so
+    an active session's lock file is never removed from under it. Only names
+    this script creates are touched. Failures are ignored: housekeeping must
+    not affect counting.
+    """
+    cutoff = time.time() - RETENTION_DAYS * 86400
+    groups = {}
+    try:
+        for p in root.iterdir():
+            if (STATE_NAME.fullmatch(p.stem) and p.suffix in {".json", ".lock", ".tmp"}
+                    and p.stem != keep.stem):
+                groups.setdefault(p.stem, []).append(p)
+    except OSError:
+        return
+    # Decide per session before deleting, so a lock never outlives its state file.
+    for files in groups.values():
+        anchors = [p for p in files if p.suffix == ".json"] or files
+        try:
+            if max(p.stat().st_mtime for p in anchors) >= cutoff:
+                continue
+        except OSError:
+            continue
+        for entry in sorted(files, key=lambda p: p.suffix != ".json"):
+            try:
+                entry.unlink()
+            except OSError:
+                pass  # In use or already gone; retry at a later compaction.
+
+
+def read_state(path, session):
+    state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else fresh_state(session)
     if (state.get("schema") != 1 or state.get("session_id") != session or
             type(state.get("auto_count")) is not int or state["auto_count"] < 0 or
             type(state.get("next_reminder_at")) is not int or
@@ -210,7 +252,7 @@ def prepare(state, event, reason, opts):
     proposal = {"id": hashlib.sha256(identity.encode()).hexdigest()[:24],
                 "turn_id": turn, "reason": reason, "stage_key": stage,
                 "cause_key": cause, "notice": notice, "counted": False,
-                "commentary_delivered": False, "final_delivered": False,
+                "final_delivered": False,
                 "retry_used": False, "final_missed": False, "closed": False}
     state.update(proposal=proposal, response="pending")
     record_ready(state, turn)
@@ -225,11 +267,12 @@ def record_ready(state, turn):
         next_check="next_compaction")
 
 
-def receipt(state, proposal, channel):
+def receipt(state, proposal):
+    """Count a final-text delivery once; the only evidence is the host Stop event."""
     if proposal["closed"]:
         raise ValueError("proposal already closed")
-    proposal[channel + "_delivered"] = True
-    if channel == "final" and not proposal["counted"]:
+    proposal["final_delivered"] = True
+    if not proposal["counted"]:
         proposal["counted"] = True
         state["tracked_reminder_count"] += 1
         if state["reminder_count"] is not None:
@@ -295,7 +338,7 @@ def check_stop(state, event):
     current = (proposal and not proposal["closed"] and not proposal["final_delivered"]
                and turn == proposal["turn_id"])
     if current and final_contains_notice(event.get("last_assistant_message"), proposal["notice"]):
-        receipt(state, proposal, "final")
+        receipt(state, proposal)
         proposal["final_missed"] = False
         return {}
     if current:
@@ -332,28 +375,35 @@ def context_output(state, name):
     count = state["auto_count"]
     if count == 0 and not state["proposal"] and not state["muted"]:
         return {}
+    turn = state.get("active_turn_id")
+    turn_part = f"当前turn_id={turn}；" if turn else ""
+    open_proposal = (state["proposal"] and not state["proposal"]["closed"]
+                     and not state["proposal"]["final_delivered"])
+    due = evaluation_due(state, turn)
+    if not (state["muted"] or state["defer_until"] or open_proposal or due):
+        # Nothing to register this turn: one line instead of the full rule text.
+        if count < state["next_reminder_at"]:
+            line = f"冷却至第{state['next_reminder_at']}次压缩，期间不提醒。"
+        else:
+            line = "本压缩点已评估；进入新的实质阶段时再按 project-handoff 评估。"
+        return {"hookSpecificOutput": {"hookEventName": name,
+                "additionalContext": f"project-handoff：自动压缩{count}次；{turn_part}{line}"}}
     total = (str(state["reminder_count"]) + "次" if state["reminder_count"] is not None else
              f"历史最终总数未知，新版已核验{state['tracked_reminder_count']}次")
-    base = f"project-handoff：自动压缩{count}次；最终文本提醒{total}；"
-    if state.get("active_turn_id"):
-        base += f"当前turn_id={state['active_turn_id']}；"
+    base = f"project-handoff：自动压缩{count}次；最终文本提醒{total}；{turn_part}"
     if state["last_notified_at"] is not None:
         base += f"提醒冷却参考第{state['last_notified_at']}次压缩。"
     if state["muted"]:
         context = "本任务主动提醒已关闭；显式交接或恢复提醒请求仍执行。"
     elif state["defer_until"]:
         context = f"等待用户指定节点{state['defer_until']}；节点到达才评估，普通次数不催促。"
-    elif state["proposal"] and not state["proposal"]["closed"] and not state["proposal"]["final_delivered"]:
+    elif open_proposal:
         context = ("存在尚未最终展示的建议。先核对最新回应：仍适用则按原标识重新 prepare，"
-                   "放在最终正文最前；不适用则 evaluate 或 cancel。进度提醒不计正式次数。")
-    elif evaluation_due(state, state.get("active_turn_id")):
+                   "放在最终正文最前；不适用则 evaluate 或 cancel。进度消息不算展示。")
+    else:
         context = ("本次压缩检查点待评估：最终答复前执行 prepare 或 evaluate。"
                    "prepare 成功才提醒；不提醒须记录原因及下次检查时机。"
                    "首次到三次需安全位置和后续；再次提醒还需新阶段与具体收益。")
-    elif state["auto_count"] < state["next_reminder_at"]:
-        context = f"冷却至第{state['next_reminder_at']}次压缩；新阶段不越过冷却。"
-    else:
-        context = "本次压缩点已评估；新实质阶段仍应评估，不重复同阶段提醒。"
     context += (f"执行前读取{SKILL}及references/compaction-reminder.md。"
                 "新且已核实的混淆先纠正，可提前提醒；同一问题去重，静默优先。"
                 "纯问答、无后续或讨论/修改本Skill不提醒。注入不算送达，普通继续不算交接批准。")
@@ -387,22 +437,11 @@ def process(event, root, action="hook", response=None, reason=None, **opts):
             # One callback per successful automatic compaction. Do not deduplicate
             # by turn_id: a single turn can legitimately compact several times.
             state["auto_count"] += 1
+            sweep(root, path)
         elif action == "evaluate":
             result = evaluate(state, event, opts)
         elif action == "prepare":
             result = prepare(state, event, reason, opts)
-        elif action == "notified":
-            proposal = state["proposal"]
-            if not proposal or opts.get("proposal_id") != proposal["id"]:
-                raise ValueError("notified requires a prepared proposal ID")
-            channel = opts.get("channel")
-            if channel not in {"commentary", "final"}:
-                raise ValueError("receipt requires an explicit delivery channel")
-            if event.get("turn_id") != proposal["turn_id"]:
-                raise ValueError("receipt must identify the original delivery turn")
-            if channel == "final":
-                raise ValueError("final receipt requires host Stop evidence")
-            receipt(state, proposal, channel)
         elif action == "cancel":
             turn = key_arg(event.get("turn_id"), "turn_id")
             if state.get("active_turn_id") and turn != state["active_turn_id"]:
@@ -438,7 +477,7 @@ def process(event, root, action="hook", response=None, reason=None, **opts):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--state-dir", type=Path, required=True)
-    parser.add_argument("--action", choices=["hook", "status", "evaluate", "prepare", "notified", "respond", "cancel"],
+    parser.add_argument("--action", choices=["hook", "status", "evaluate", "prepare", "respond", "cancel"],
                         default="hook")
     parser.add_argument("--session-id")
     parser.add_argument("--turn-id")
@@ -448,7 +487,6 @@ def main():
     parser.add_argument("--cause-key")
     parser.add_argument("--checkpoint-key")
     parser.add_argument("--proposal-id")
-    parser.add_argument("--channel", choices=["commentary", "final"])
     parser.add_argument("--notice")
     parser.add_argument("--outcome", choices=["defer", "skip"])
     parser.add_argument("--note")

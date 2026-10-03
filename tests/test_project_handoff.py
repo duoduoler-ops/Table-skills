@@ -7,9 +7,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
-import uuid
 
 REPO = Path(__file__).resolve().parents[1]
 QA = REPO / ".test-output" / "project-handoff"
@@ -19,7 +19,9 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("reminder", SCRIPT)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-RUN = QA / "fixtures" / uuid.uuid4().hex
+# Short temp root keeps lock paths under the Windows 260-character limit
+# regardless of where the repository is checked out.
+RUN = Path(tempfile.mkdtemp(prefix="ph-"))
 NOTICE = "交接建议：设计已经确认，后续进入样片；确认后保存材料，在同一项目新建并打开任务接续。"
 
 
@@ -49,10 +51,6 @@ class ReminderTests(unittest.TestCase):
 
     def pid(self):
         return self.status()["proposal"]["id"]
-
-    def shown(self, channel="commentary", original_turn=None):
-        event = dict(session_id=self.sid, turn_id=original_turn or self.turn)
-        return m.process(event, self.root, "notified", proposal_id=self.pid(), channel=channel)
 
     def reply(self, value, turn="response-a", **kw):
         args = dict(proposal_id=self.pid(), **kw)
@@ -103,10 +101,9 @@ class ReminderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.prep()
 
-    def test_commentary_and_final_count_once_and_keep_cooldown(self):
+    def test_final_counts_once_and_keeps_cooldown(self):
         self.compact(3)
         self.prep()
-        self.shown()
         self.compact()
         self.hook("Stop", last_assistant_message="**" + NOTICE + "**\n\n成果如下。")
         s = self.status()
@@ -120,20 +117,17 @@ class ReminderTests(unittest.TestCase):
         self.hook("Stop", last_assistant_message=NOTICE)
         self.assertEqual(self.status()["reminder_count"], 1)
 
-    def test_cannot_premark_final_in_current_turn(self):
+    def test_no_manual_receipt_action(self):
         self.compact(3)
         self.prep()
+        before = m.state_path(self.root, self.sid).read_bytes()
         with self.assertRaises(ValueError):
-            self.shown("final")
-        self.assertEqual(self.status()["reminder_count"], 0)
-
-    def test_manual_final_receipt_cannot_invent_delivery(self):
-        self.compact(3)
-        self.prep()
-        self.turn = "turn-b"
-        self.hook("UserPromptSubmit", prompt="后续工作")
-        with self.assertRaises(ValueError):
-            self.shown("final", "turn-a")
+            m.process(self.event(""), self.root, "notified", proposal_id=self.pid(), channel="final")
+        self.assertEqual(m.state_path(self.root, self.sid).read_bytes(), before)
+        command = [sys.executable, "-X", "utf8", str(SCRIPT), "--state-dir", str(self.root),
+                   "--session-id", self.sid, "--turn-id", self.turn, "--action", "notified"]
+        result = subprocess.run(command, text=True, encoding="utf-8", capture_output=True, timeout=8)
+        self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.status()["reminder_count"], 0)
 
     def test_missing_final_repairs_once_then_records_failure(self):
@@ -190,7 +184,6 @@ class ReminderTests(unittest.TestCase):
         self.compact(3)
         self.assertFalse(self.prep(reason="stage", stage="design", benefit=True)["prepared"])
         self.prep(reason="stage", stage="sample", benefit=True)
-        self.shown()
         self.hook("Stop", last_assistant_message=NOTICE)
         self.compact(3)
         self.assertFalse(self.prep(reason="stage", stage="design", benefit=True)["prepared"])
@@ -258,7 +251,6 @@ class ReminderTests(unittest.TestCase):
     def test_verified_new_confusion_bypasses_cooldown_but_not_mute(self):
         self.delivered()
         self.assertTrue(self.prep(reason="confusion", cause_key="wrong-master", benefit=True)["prepared"])
-        self.shown()
         self.hook("Stop", last_assistant_message=NOTICE)
         self.compact(5)
         self.assertFalse(self.prep(reason="confusion", cause_key="wrong-master", benefit=True)["prepared"])
@@ -272,7 +264,6 @@ class ReminderTests(unittest.TestCase):
         self.assertFalse(self.prep(reason="stage", stage="sample", benefit=True)["prepared"])
         self.reply("resume", turn="response-b")
         self.assertTrue(self.prep(reason="stage", stage="sample", benefit=True)["prepared"])
-        self.shown()
         self.reply("handoff", turn="response-c")
         self.assertTrue(self.status()["muted"])
         self.assertEqual({p.suffix for p in self.root.iterdir()}, {".json", ".lock"})
@@ -289,7 +280,6 @@ class ReminderTests(unittest.TestCase):
         self.prep()
         identity = self.pid()
         self.prep()
-        self.shown()
         self.turn = "resumed-turn"
         self.hook("UserPromptSubmit", prompt="处理下一步")
         self.prep()
@@ -357,8 +347,8 @@ class ReminderTests(unittest.TestCase):
         return m.process(self.event(""), self.root, "evaluate", outcome=outcome,
                          next_check=next_check, note=note)
 
-    def test_commentary_is_not_formal_delivery_or_cooldown(self):
-        self.compact(3); self.prep(); self.shown()
+    def test_prepare_alone_is_not_delivery_or_cooldown(self):
+        self.compact(3); self.prep()
         s=self.status()
         self.assertEqual(s["reminder_count"],0)
         self.assertEqual(s["next_reminder_at"],3)
@@ -515,6 +505,59 @@ class ReminderTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         state = m.process(self.event(""), self.root / "state" / "project-handoff", "status")
         self.assertEqual(state["auto_count"], 1)
+
+    def age(self, path, days):
+        stamp = time.time() - days * 86400
+        os.utime(path, (stamp, stamp))
+
+    def test_auto_compaction_sweeps_only_stale_own_state(self):
+        self.compact()
+        stale = m.state_path(self.root, "old-session")
+        fresh = m.state_path(self.root, "recent-session")
+        for p in (stale, stale.with_suffix(".lock"), fresh, fresh.with_suffix(".lock")):
+            p.write_text("{}", encoding="utf-8")
+        foreign = self.root / "notes.json"
+        foreign.write_text("{}", encoding="utf-8")
+        for p in (stale, stale.with_suffix(".lock"), foreign):
+            self.age(p, 61)
+        self.age(fresh, 59)
+        self.age(fresh.with_suffix(".lock"), 90)  # Lock age follows its .json.
+        own = m.state_path(self.root, self.sid)
+        self.age(own, 90)  # The calling session is never swept.
+        self.compact()
+        self.assertFalse(stale.exists())
+        self.assertFalse(stale.with_suffix(".lock").exists())
+        self.assertTrue(fresh.exists() and fresh.with_suffix(".lock").exists())
+        self.assertTrue(foreign.exists())
+        self.assertEqual(self.status()["auto_count"], 2)
+
+    def test_prompts_and_manual_compaction_do_not_sweep(self):
+        self.compact()
+        stale = m.state_path(self.root, "old-session")
+        stale.write_text("{}", encoding="utf-8")
+        self.age(stale, 61)
+        self.hook("UserPromptSubmit")
+        self.hook("PostCompact", trigger="manual")
+        self.assertTrue(stale.exists())
+
+    def test_not_due_context_is_one_short_line(self):
+        self.compact()
+        ctx = self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(ctx, "project-handoff：自动压缩1次；当前turn_id=turn-a；冷却至第3次压缩，期间不提醒。")
+        self.compact(5)
+        self.evaluation()
+        ctx = self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("本压缩点已评估", ctx)
+        self.assertNotIn("执行前读取", ctx)
+        self.compact()
+        self.assertIn("执行前读取", self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"])
+
+    def test_new_state_is_v3_without_legacy_snapshot(self):
+        self.compact()
+        saved = json.loads(m.state_path(self.root, self.sid).read_text(encoding="utf-8"))
+        self.assertEqual((saved["tracking_version"], saved["reminder_count"]), (3, 0))
+        self.assertNotIn("legacy_delivery_counts", saved)
+        self.assertNotIn("commentary_delivered", json.dumps(saved))
 
 
 if __name__ == "__main__":
