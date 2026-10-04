@@ -4,7 +4,7 @@
 
 整理日常使用中的 AI 技能与实验思路，按实际效果持续调整。当前维护「项目交接」；「网页替身」旧版实现已弃用，保留设计思路供后续探索。
 
-当前主要面向 **Windows 上的 Codex 桌面端**。安装 Skill 不会自动提供宿主缺失的工具、接口或 Hook 权限。
+当前主要面向 **Windows 上的 Codex 桌面端**，项目交接另提供 Claude Code 适配。安装 Skill 不会自动提供宿主缺失的工具、接口或 Hook 权限。
 
 https://github.com/user-attachments/assets/94c0a4d6-0bee-405e-9fe9-dc398cb7faa0
 
@@ -53,7 +53,7 @@ https://github.com/user-attachments/assets/94c0a4d6-0bee-405e-9fe9-dc398cb7faa0
 
 **提醒与授权**：首次到第三次自动压缩后，在安全且有明确后续的位置提醒。之后还需满足新阶段、具体切换收益和冷却条件，不是每三次压缩机械提醒。普通“继续”不等于同意新建任务；提醒不会自动执行交接。
 
-**可选 Hook**：仅在 Windows Codex 上验证。模板中 `commandWindows` 供 Windows 使用（Codex 通过 PowerShell 执行，需以 `&` 调用），`command` 供其他系统使用。安装 Skill 不等于启用 Hook；配置前需替换示例路径、合并已有配置，并完成宿主原生信任。见 [计数器说明](project-handoff/references/compaction-reminder.md) 和 [Hook 模板](project-handoff/hooks/codex-hooks.example.json)。
+**可选 Hook**：Codex 版仅在 Windows 上验证，模板中 `commandWindows` 供 Windows 使用（Codex 通过 PowerShell 执行，需以 `&` 调用），`command` 供其他系统使用。Claude Code 用同一份计数脚本加适配器 `scripts/claude_hook.py`，模板见 `hooks/claude-settings.example.json`；计数和状态注入已在 Claude Code 上观察到；完整提醒链已用模拟事件走通，尚未在真实 Claude Code 会话里到达第 3 次自动压缩。安装 Skill 不等于启用 Hook；配置前需替换示例路径、合并已有配置，并完成宿主原生信任。见 [计数器说明](project-handoff/references/compaction-reminder.md)、[Codex Hook 模板](project-handoff/hooks/codex-hooks.example.json) 和 [Claude Code 模板](project-handoff/hooks/claude-settings.example.json)。
 
 Hook 能检查压缩节点和记录是否缺失，不能独立判断所有业务阶段，也不能证明用户已经看到提醒。没有真实压缩事件时不猜次数；没有接续工具时提供手动入口。
 

@@ -27,3 +27,5 @@ jobs:
           if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'PowerShell 7 required' }
       - name: Project handoff regression
         run: python -B -X utf8 tests/test_project_handoff.py
+      - name: Claude Code adapter regression
+        run: python -B -X utf8 tests/test_claude_hook.py
