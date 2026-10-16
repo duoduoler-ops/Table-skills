@@ -24,17 +24,17 @@ macOS／Linux：
 python3 -X utf8 '<SKILL_DIRECTORY>/scripts/compaction_reminder.py' --state-dir '<STATE_DIR>' --session-id '<当前session_id>' --action status
 ```
 
-`<SKILL_DIRECTORY>` 是本 Skill 的实际安装目录，宿主加载 Skill 或注入文本时会给出。Windows 上不要把 `python` 当成可用解释器，它可能只是商店占位程序。`<STATE_DIR>`：Codex 为 `<CODEX_HOME>/state/project-handoff`（CODEX_HOME 未设置时是用户目录下 `.codex`），Claude Code 为 `<CLAUDE_HOME>/state/project-handoff`（通常是用户目录下 `.claude`）。`status` 只读，不建锁、不写回。其他动作把 `--action status` 换成下表参数。
+`<SKILL_DIRECTORY>` 是本 Skill 的实际安装目录，宿主加载 Skill 或注入文本时会给出。Windows 上不要把 `python` 当成可用解释器，它可能只是商店占位程序。`<STATE_DIR>`：Codex 为 `<CODEX_HOME>/state/project-handoff`（CODEX_HOME 未设置时是用户目录下 `.codex`），Claude Code 为 `<CLAUDE_HOME>/state/project-handoff`（通常是用户目录下 `.claude`）。`status` 只读，不建锁、不写回。其他动作保留解释器、脚本路径和 `--state-dir`，将其后参数换成下表参数。所有登记动作都需要显式传入宿主注入的 `--session-id` 和对应的 `--turn-id`。
 
 常用动作：
 
 | 场景 | 参数 |
 | --- | --- |
-| 暂缓 | `--action evaluate --turn-id '<当前turn_id>' --outcome defer --note '<具体缺项>' --next-check next_turn`；同阶段没有新收益时改 `next_compaction` |
-| 不适用 | `--action evaluate --turn-id '<当前turn_id>' --outcome skip --note '<纯问答、无后续或讨论本 Skill>' --next-check next_compaction` |
-| 首次次数提醒 | `--action prepare --turn-id '<当前turn_id>' --reason count --stage-key '<稳定的业务阶段>' --safe --has-next --notice '交接建议：<原因、第一步、确认后的动作>'` |
+| 暂缓 | `--action evaluate --session-id '<当前session_id>' --turn-id '<当前turn_id>' --outcome defer --note '<具体缺项>' --next-check next_turn`；同阶段没有新收益时改 `next_compaction` |
+| 不适用 | `--action evaluate --session-id '<当前session_id>' --turn-id '<当前turn_id>' --outcome skip --note '<纯问答、无后续或讨论本 Skill>' --next-check next_compaction` |
+| 首次次数提醒 | `--action prepare --session-id '<当前session_id>' --turn-id '<当前turn_id>' --reason count --stage-key '<稳定的业务阶段>' --safe --has-next --notice '交接建议：<原因、第一步、确认后的动作>'` |
 | 阶段提醒 | 同上，`--reason stage`，加 `--benefit` |
-| 用户确认完整交接 | `--action respond --turn-id '<回应turn_id>' --proposal-id '<建议id>' --response handoff`。只停止提醒，业务交接仍按 handoff.md 的授权和核验执行 |
+| 用户确认完整交接 | `--action respond --session-id '<当前session_id>' --turn-id '<回应turn_id>' --proposal-id '<建议id>' --response handoff`。只停止提醒，业务交接仍按 handoff.md 的授权和核验执行 |
 | 用户说先不交接 | 同上，`--response continue` |
 
 少用动作：
@@ -42,9 +42,9 @@ python3 -X utf8 '<SKILL_DIRECTORY>/scripts/compaction_reminder.py' --state-dir '
 | 场景 | 参数 |
 | --- | --- |
 | 已核实的新混淆 | 按首次提醒的参数 `prepare`，改为 `--reason confusion --benefit --cause-key '<已纠正问题的标识>'` |
-| 用户指定节点 | `--action respond --turn-id '<回应turn_id>' --proposal-id '<建议id>' --response defer --checkpoint-key '<节点>'`；节点到达时按首次提醒的参数 `prepare`，改为 `--reason checkpoint --checkpoint-key '<节点>'`，到达与否由 Agent 核实 |
-| 静默／恢复 | `--action respond --turn-id '<回应turn_id>' --response mute` 或 `resume`，不需要 proposal-id，仅用户明确要求时使用 |
-| 建议失效 | `--action cancel --turn-id '<当前turn_id>' --proposal-id '<建议id>'`，记为本次跳过，不冒充用户拒绝 |
+| 用户指定节点 | `--action respond --session-id '<当前session_id>' --turn-id '<回应turn_id>' --proposal-id '<建议id>' --response defer --checkpoint-key '<节点>'`；节点到达时按首次提醒的参数 `prepare`，改为 `--reason checkpoint --checkpoint-key '<节点>'`，到达与否由 Agent 核实 |
+| 静默／恢复 | `--action respond --session-id '<当前session_id>' --turn-id '<回应turn_id>' --response mute` 或 `resume`，不需要 proposal-id，仅用户明确要求时使用 |
+| 建议失效 | `--action cancel --session-id '<当前session_id>' --turn-id '<当前turn_id>' --proposal-id '<建议id>'`，记为本次跳过，不冒充用户拒绝 |
 
 约束：`note` 不超过 160 字，不存用户原文或敏感信息；`notice` 是 20 到 600 字的一段话，以“交接建议：”开头，不能换行；`--safe`、`--has-next`、`--benefit` 必须有事实依据。`prepare` 返回 `prepared: true` 才能展示，被拒绝时核实返回的原因，再登记暂缓或不适用。登记暂缓或不适用会关闭尚未最终展示的旧建议，避免恢复后误补。
 

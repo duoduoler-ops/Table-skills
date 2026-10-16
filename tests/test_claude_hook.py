@@ -60,7 +60,8 @@ class ClaudeHookTests(unittest.TestCase):
     def test_prompt_id_maps_to_turn_id_and_context_names_session(self):
         self.compact()
         ctx = self.context()
-        self.assertTrue(ctx.startswith(f"当前session_id={self.session}；"))
+        self.assertTrue(ctx.startswith("project-handoff："))
+        self.assertEqual(ctx.count(f"当前session_id={self.session}；"), 1)
         self.assertIn(f"当前turn_id={self.prompt}", ctx)
         self.assertIn("待评估", ctx)
         self.assertEqual(self.core("--action", "status")["active_turn_id"], self.prompt)

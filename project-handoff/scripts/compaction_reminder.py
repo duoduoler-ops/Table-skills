@@ -377,6 +377,8 @@ def context_output(state, name):
         return {}
     turn = state.get("active_turn_id")
     turn_part = f"当前turn_id={turn}；" if turn else ""
+    session = state.get("session_id")
+    session_part = f"当前session_id={session}；" if session else ""
     open_proposal = (state["proposal"] and not state["proposal"]["closed"]
                      and not state["proposal"]["final_delivered"])
     due = evaluation_due(state, turn)
@@ -387,10 +389,10 @@ def context_output(state, name):
         else:
             line = "本压缩点已评估；进入新的实质阶段时再按 project-handoff 评估。"
         return {"hookSpecificOutput": {"hookEventName": name,
-                "additionalContext": f"project-handoff：自动压缩{count}次；{turn_part}{line}"}}
+                "additionalContext": f"project-handoff：自动压缩{count}次；{session_part}{turn_part}{line}"}}
     total = (str(state["reminder_count"]) + "次" if state["reminder_count"] is not None else
              f"历史最终总数未知，新版已核验{state['tracked_reminder_count']}次")
-    base = f"project-handoff：自动压缩{count}次；最终文本提醒{total}；{turn_part}"
+    base = f"project-handoff：自动压缩{count}次；最终文本提醒{total}；{session_part}{turn_part}"
     if state["last_notified_at"] is not None:
         base += f"提醒冷却参考第{state['last_notified_at']}次压缩。"
     if state["muted"]:

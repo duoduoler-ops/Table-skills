@@ -1,8 +1,8 @@
 """Claude Code lifecycle adapter for the shared project-handoff core.
 
 Only maps Claude hook fields onto the Codex-shaped event the core expects:
-prompt_id becomes turn_id, and injected context names the session_id so the
-agent can call the core CLI. Counting, evaluation and Stop checks stay in
+prompt_id becomes turn_id; the core injects session_id and turn_id so the
+agent can call its CLI. Counting, evaluation and Stop checks stay in
 compaction_reminder.py, which is kept byte-identical to the Codex copy.
 No network, model calls, or business-file writes.
 """
@@ -28,10 +28,6 @@ def main():
     try:
         event = adapt(json.load(sys.stdin))
         result = core.process(event, args.state_dir)
-        extra = (result or {}).get("hookSpecificOutput")
-        if extra and extra.get("additionalContext"):
-            extra["additionalContext"] = (f"当前session_id={event['session_id']}；"
-                                          + extra["additionalContext"])
         if result:
             print(json.dumps(result, ensure_ascii=False))
     except (OSError, ValueError, TypeError, KeyError) as error:

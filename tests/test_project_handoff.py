@@ -348,6 +348,51 @@ class ReminderTests(unittest.TestCase):
         return m.process(self.event(""), self.root, "evaluate", outcome=outcome,
                          next_check=next_check, note=note)
 
+    def test_injected_host_ids_can_register_cli_evaluation(self):
+        self.compact(3)
+        for name in ("SessionStart", "UserPromptSubmit"):
+            ctx = self.hook(name)["hookSpecificOutput"]["additionalContext"]
+            session = re.search(r"当前session_id=([^；]+)；", ctx)
+            turn = re.search(r"当前turn_id=([^；]+)；", ctx)
+            self.assertIsNotNone(session)
+            self.assertIsNotNone(turn)
+            self.assertEqual((session.group(1), turn.group(1)), (self.sid, self.turn))
+        command = [sys.executable, "-X", "utf8", str(SCRIPT), "--state-dir", str(self.root),
+                   "--session-id", session.group(1), "--turn-id", turn.group(1),
+                   "--action", "evaluate", "--outcome", "skip", "--note", "本轮讨论 Skill",
+                   "--next-check", "next_compaction"]
+        result = subprocess.run(command, text=True, encoding="utf-8", capture_output=True, timeout=8)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["evaluated"])
+        self.assertEqual(self.status()["evaluation"]["auto_count"], 3)
+        self.assertEqual(self.status()["auto_count"], 3)
+        self.assertEqual(self.hook("Stop", last_assistant_message="Skill 审查完成"), {})
+
+    def test_cli_evaluation_rejects_missing_session_without_writing(self):
+        self.compact(3)
+        path = m.state_path(self.root, self.sid)
+        before = path.read_bytes()
+        command = [sys.executable, "-X", "utf8", str(SCRIPT), "--state-dir", str(self.root),
+                   "--turn-id", self.turn, "--action", "evaluate", "--outcome", "skip",
+                   "--note", "本轮讨论 Skill", "--next-check", "next_compaction"]
+        result = subprocess.run(command, text=True, encoding="utf-8", capture_output=True, timeout=8)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIsNone(self.status()["evaluation"])
+        self.assertEqual(list(self.root.glob("*.json")), [path])
+
+    def test_cli_evaluation_rejects_stale_turn_without_writing(self):
+        self.compact(3)
+        path = m.state_path(self.root, self.sid)
+        before = path.read_bytes()
+        command = [sys.executable, "-X", "utf8", str(SCRIPT), "--state-dir", str(self.root),
+                   "--session-id", self.sid, "--turn-id", "stale-turn", "--action", "evaluate",
+                   "--outcome", "skip", "--note", "本轮讨论 Skill", "--next-check", "next_compaction"]
+        result = subprocess.run(command, text=True, encoding="utf-8", capture_output=True, timeout=8)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIsNone(self.status()["evaluation"])
+
     def test_prepare_alone_is_not_delivery_or_cooldown(self):
         self.compact(3); self.prep()
         s=self.status()
@@ -544,7 +589,7 @@ class ReminderTests(unittest.TestCase):
     def test_not_due_context_is_one_short_line(self):
         self.compact()
         ctx = self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
-        self.assertEqual(ctx, "project-handoff：自动压缩1次；当前turn_id=turn-a；冷却至第3次压缩，期间不提醒。")
+        self.assertEqual(ctx, "project-handoff：自动压缩1次；当前session_id=main-session；当前turn_id=turn-a；冷却至第3次压缩，期间不提醒。")
         self.compact(5)
         self.evaluation()
         ctx = self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
